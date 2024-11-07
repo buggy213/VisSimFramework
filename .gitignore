@@ -3,3 +3,8 @@ Binaries/**
 Assets/Generated/**
 
 *.asv
+*.psf
+
+Assets/Meshes
+Assets/Textures
+Libraries

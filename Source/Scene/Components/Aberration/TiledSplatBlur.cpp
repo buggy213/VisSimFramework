@@ -600,8 +600,15 @@ namespace TiledSplatBlur
 		////////////////////////////////////////////////////////////////////////////////
 		bool isEyeStateFixed(Scene::Scene& scene, Scene::Object* object)
 		{
-			return getPsfStack(scene, object).m_psfEntryParameters[0][0][0][0].size() == 1 &&
-				getPsfStack(scene, object).m_psfEntryParameters[0][0][0][0][0].size() == 1;
+			auto& psf_stack = getPsfStack(scene, object);
+			auto* shape = psf_stack.m_psfEntryParameters.shape();
+			for (int i = 0; i < psf_stack.m_psfEntryParameters.dimensionality; i += 1) {
+				std::cout << shape[i] << ', ';
+			}
+			std::cout << std::endl;
+			std::cout << psf_stack.m_psfEntryParameters.size() << std::endl;
+			return psf_stack.m_psfEntryParameters[0][0][0][0].size() == 1 &&
+				psf_stack.m_psfEntryParameters[0][0][0][0][0].size() == 1;
 		}
 
 		////////////////////////////////////////////////////////////////////////////////
@@ -709,7 +716,7 @@ namespace TiledSplatBlur
 				m_numNeighborTilesSplat(Tiling::tileBufferNumNeighborTilesSplat(m_tileSize, m_maxCoc)),
 				m_numSortIterations(Tiling::tileBufferMaxSortIterations(scene, object, m_maxLayers)),
 				m_sortElementsPerThread(glm::max(m_maxSortIndices / m_sortGroupSize / 2, 1)),
-				m_isEyeStateFixed(Psfs::isEyeStateFixed(scene, object)),
+				m_isEyeStateFixed(/*Psfs::isEyeStateFixed(scene, object)*/ true),
 				m_psfAxisMethod(object->component<TiledSplatBlur::TiledSplatBlurComponent>().m_psfAxisMethod),
 				m_psfTextureFormat(object->component<TiledSplatBlur::TiledSplatBlurComponent>().m_psfTextureFormat),
 				m_psfTextureDepthLayout(object->component<TiledSplatBlur::TiledSplatBlurComponent>().m_psfTextureDepthLayout),
@@ -1607,6 +1614,30 @@ namespace TiledSplatBlur
 
 					// Extract the PSF properties
 					UniformDataPsfParam const& psfParameters = psfParamBuffer[psfId];
+
+					// DEBUG: write out PSFs to file
+					std::stringstream filename;
+					filename << psfIndex[0] << '-' << psfIndex[1] << '-' << psfIndex[2] << '-' << psfIndex[3] << '-' << psfIndex[4] << '-' << psfIndex[5];
+					filename << ".psf";
+					std::ofstream outfile{ filename.str() };
+
+					auto& psfStack = Psfs::getPsfStack(scene, object);
+					auto& psfEntryParameters = psfStack.m_psfEntryParameters(psfIndex);
+					
+					outfile << "Object depth: " << psfEntryParameters.m_units.m_objectDistanceM << " (meters)\n";
+					outfile << "Horizontal Angle: " << psfEntryParameters.m_units.m_horizontalAngle << "\n";
+					outfile << "Vertical Angle: " << psfEntryParameters.m_units.m_verticalAngle << "\n";
+					outfile << "Wavelength: " << psfEntryParameters.m_units.m_lambdaMuM << " (um)\n";
+					outfile << "Aperture Diameter: " << psfEntryParameters.m_units.m_apertureDiameterMM << " (mm)\n";
+					outfile << "Focus Distance: " << psfEntryParameters.m_units.m_focusDistanceM << " (meters)\n";
+
+					for (size_t radius = psfParameters.m_minBlurRadius; radius <= psfParameters.m_maxBlurRadius; ++radius) 
+					{
+						outfile << "Radius: " << radius << '\n';
+						Psfs::PsfGpu psf = Psfs::computeGpuPsf(scene, object, psfEntry, radius);
+						outfile << psf << '\n';
+					}
+					outfile.close();
 
 					// Store the downscaled PSF in all the relevant radii
 					GLfloat* writePtr = &psfWeightBuffer[psfParameters.m_weightStartId];

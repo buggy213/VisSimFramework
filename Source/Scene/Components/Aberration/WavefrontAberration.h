@@ -209,7 +209,7 @@ namespace Aberration
 		float m_desiredPupilRetinaDistance = 0.0f; // The desired manual pupil-retina distance
 
 		// Eye estimation parameters
-		EyeEstimationMethod m_eyeEstimationMethod = NeuralNetworks; // Which method to use for eye estimation
+		EyeEstimationMethod m_eyeEstimationMethod = Matlab; /* NeuralNetworks ; */ // Which method to use for eye estimation
 		bool m_forceOnAxisNetwork = false; // Whether we should always use the on-axis network or not
 
 		// Alpha to beta conversion parameters

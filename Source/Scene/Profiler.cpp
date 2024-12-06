@@ -13,7 +13,8 @@ namespace Profiler
 	int profilingDefault()
 	{
 		static int s_profiling = glm::clamp(Config::AttribValue("profiling").get<size_t>(), (size_t)0, (size_t)1);
-		return s_profiling;
+		//return s_profiling;
+		return 1;
 	}
 
 	////////////////////////////////////////////////////////////////////////////////

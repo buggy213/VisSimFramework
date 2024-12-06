@@ -575,27 +575,53 @@ namespace TiledSplatBlur
 			// Resize the derived parameters vector
 			object->component<TiledSplatBlurComponent>().m_derivedPsfParameters.resize(numTotalPsfs);
 
-			Threading::threadedExecuteIndices(Threading::numThreads(),
-				[&](Threading::ThreadedExecuteEnvironment const& environment, size_t psfId)
-				{
-					// Extract the psf and calculate the needed properties
-					const Aberration::PsfIndex psfIndex = Psfs::getPsfIndex(scene, object, psfId);
-					Aberration::PsfStackElements::PsfEntry const& psfEntry = Psfs::selectEntry(scene, object, psfIndex);
-					const glm::ivec2 blurRadii = Psfs::blurRadiusLimitsEntry(scene, object, psfIndex);
+			//Threading::threadedExecuteIndices(Threading::numThreads(),
+			//	[&](Threading::ThreadedExecuteEnvironment const& environment, size_t psfId)
+			//	{
+			//		if (psfId == 0) {
+			//			std::cout << "Here" << std::endl;
+			//		}
+			//		// Extract the psf and calculate the needed properties
+			//		const Aberration::PsfIndex psfIndex = Psfs::getPsfIndex(scene, object, psfId);
+			//		Aberration::PsfStackElements::PsfEntry const& psfEntry = Psfs::selectEntry(scene, object, psfIndex);
+			//		const glm::ivec2 blurRadii = Psfs::blurRadiusLimitsEntry(scene, object, psfIndex);
 
-					// Remember the total number of weights for this PSF entry
-					const size_t numPsfWeights = Psfs::weightsPerEntry(blurRadii[0], blurRadii[1], 1);
+			//		// Remember the total number of weights for this PSF entry
+			//		const size_t numPsfWeights = Psfs::weightsPerEntry(blurRadii[0], blurRadii[1], 1);
 
-					// Store the relevant props in the output structure
-					TiledSplatBlurComponent::DerivedPsfParameters& derivedPsfParameters = 
+			//		// Store the relevant props in the output structure
+			//		TiledSplatBlurComponent::DerivedPsfParameters& derivedPsfParameters = 
+			//			object->component<TiledSplatBlurComponent>().m_derivedPsfParameters[psfId];
+			//		derivedPsfParameters.m_minBlurRadius = blurRadii[0];
+			//		derivedPsfParameters.m_maxBlurRadius = blurRadii[1];
+			//		derivedPsfParameters.m_numPsfWeights = numPsfWeights;
+			//		derivedPsfParameters.m_blurRadiusDeg = psfEntry.m_blurRadiusDeg;
+			//	},
+			//	numTotalPsfs);
+
+			for (size_t psfId = 0; psfId < numTotalPsfs; psfId += 1) {
+				if (psfId == 0) {
+						std::cout << "Here" << std::endl;
+				}
+				// Extract the psf and calculate the needed properties
+				const Aberration::PsfIndex psfIndex = Psfs::getPsfIndex(scene, object, psfId);
+				Aberration::PsfStackElements::PsfEntry const& psfEntry = Psfs::selectEntry(scene, object, psfIndex);
+				const glm::ivec2 blurRadii = Psfs::blurRadiusLimitsEntry(scene, object, psfIndex);
+
+				// Remember the total number of weights for this PSF entry
+				const size_t numPsfWeights = Psfs::weightsPerEntry(blurRadii[0], blurRadii[1], 1);
+
+				// Store the relevant props in the output structure
+				TiledSplatBlurComponent::DerivedPsfParameters& derivedPsfParameters =
 						object->component<TiledSplatBlurComponent>().m_derivedPsfParameters[psfId];
-					derivedPsfParameters.m_minBlurRadius = blurRadii[0];
-					derivedPsfParameters.m_maxBlurRadius = blurRadii[1];
-					derivedPsfParameters.m_numPsfWeights = numPsfWeights;
-					derivedPsfParameters.m_blurRadiusDeg = psfEntry.m_blurRadiusDeg;
-				},
-				numTotalPsfs);
+				derivedPsfParameters.m_minBlurRadius = blurRadii[0];
+				derivedPsfParameters.m_maxBlurRadius = blurRadii[1];
+				derivedPsfParameters.m_numPsfWeights = numPsfWeights;
+				derivedPsfParameters.m_blurRadiusDeg = psfEntry.m_blurRadiusDeg;
+			}
 		}
+
+		
 
 		////////////////////////////////////////////////////////////////////////////////
 		bool isEyeStateFixed(Scene::Scene& scene, Scene::Object* object)
@@ -750,6 +776,7 @@ namespace TiledSplatBlur
 			template<typename Fn>
 			void forEachParameter(Fn const& callback) const
 			{
+				std::cout << "Max sort Indices: " << m_maxSortIndices << std::endl;
 				callback("Layers",                      "MAX_LAYERS", m_maxLayers);
 				callback("Tile Size",                   "TILE_SIZE", m_tileSize);
 				callback("Merge Steps",                 "MERGE_STEPS", m_mergeSteps);
@@ -807,6 +834,7 @@ namespace TiledSplatBlur
 					result << name << ": " << value << std::endl;
 				});
 
+			std::cerr << result.str() << std::endl;
 			return result.str();
 		}
 
@@ -1085,7 +1113,7 @@ namespace TiledSplatBlur
 						const size_t minRadius = Psfs::minBlurRadius(scene, object, maxResolution, fovyLimits, psfIndices);
 						const size_t maxRadius = Psfs::maxBlurRadius(scene, object, maxResolution, fovyLimits, psfIndices);
 						const size_t maxDiff = Psfs::maxBlurRadiusDifference(scene, object, maxResolution, fovyLimits, psfIndices);
-						const size_t numLayersNeeded = calcNumReducedSlices(maxRadius, maxDiff, s[axisId], p[axisId]);
+						const size_t numLayersNeeded = calcNumReducedSlices(maxRadius, maxDiff, s[axisId], p[axisId]); // S, P = 0 for axis = 0 (object distances), so numLayersNeeded = maxDiff
 						const float numLayersReduction = calcNumSlicesReduction(maxRadius, maxDiff, s[axisId], p[axisId]);
 
 						if (perSliceInfo.m_numSlices < numLayersNeeded || (perSliceInfo.m_numSlices == numLayersNeeded && perSliceInfo.m_blurRadii[1] < maxRadius))
@@ -1104,6 +1132,9 @@ namespace TiledSplatBlur
 					}
 
 					// Increment the layer counter
+					if (axisId == 0) {
+							std::cout << "Num slices: " << perSliceInfo.m_numSlices << "\n";
+					}
 					result.m_numSlices[axisId] += perSliceInfo.m_numSlices;
 					result.m_numSlicesUnreduced[axisId] += perSliceInfo.m_maxDiff;
 
@@ -1597,6 +1628,66 @@ namespace TiledSplatBlur
 			if (!uploadWeights)
 				return;
 
+			// DEBUG: write out PSF stack info to file
+			// i.e. what object depths, horizontal/vertical angles, aperture diameters, focus distances, ... that these PSFs correspond to. 
+			std::filesystem::path p{ "PSF" };
+			std::filesystem::create_directory(p);
+			auto& psfParameters = Psfs::getAberration(scene, object).m_psfParameters;
+			auto& psfName = Psfs::getAberration(scene, object).m_name;
+			p = p / psfName;
+			std::filesystem::create_directory(p);
+			std::ofstream psfStackFile{ p / "psfstack" };
+			auto& psfStackEvaluatedParameters = psfParameters.m_evaluatedParameters;
+			
+			psfStackFile << "Focus dioptres: ";
+			for (float x : psfStackEvaluatedParameters.m_focusDioptres) {
+				psfStackFile << x << " ";
+			}
+			psfStackFile << "\n";
+			
+			psfStackFile << "Focus distances: ";
+			for (float x : psfStackEvaluatedParameters.m_focusDistances) {
+				psfStackFile << x << " ";
+			}
+			psfStackFile << "\n";
+
+			psfStackFile << "Object dioptres: ";
+			for (float x : psfStackEvaluatedParameters.m_objectDioptres) {
+				psfStackFile << x << " ";
+			}
+			psfStackFile << "\n";
+
+			psfStackFile << "Object distances: ";
+			for (float x : psfStackEvaluatedParameters.m_objectDistances) {
+				psfStackFile << x << " ";
+			}
+			psfStackFile << "\n";
+
+			psfStackFile << "Wavelengths: ";
+			for (float x : psfStackEvaluatedParameters.m_lambdas) {
+				psfStackFile << x << " ";
+			}
+			psfStackFile << "\n";
+
+			psfStackFile << "Aperture Diameters: ";
+			for (float x : psfStackEvaluatedParameters.m_apertureDiameters) {
+				psfStackFile << x << " ";
+			}
+			psfStackFile << "\n";
+
+			psfStackFile << "Horizontal Angles: ";
+			for (float x : psfStackEvaluatedParameters.m_incidentAnglesHorizontal) {
+				psfStackFile << x << " ";
+			}
+			psfStackFile << "\n";
+
+			psfStackFile << "Vertical Angles: ";
+			for (float x : psfStackEvaluatedParameters.m_incidentAnglesVertical) {
+				psfStackFile << x << " ";
+			}
+			psfStackFile << "\n";
+			psfStackFile.close();
+
 			// Now actually upload the weights
 			std::vector<GLfloat> psfWeightBuffer(numTotalWeights);
 			{
@@ -1619,7 +1710,7 @@ namespace TiledSplatBlur
 					std::stringstream filename;
 					filename << psfIndex[0] << '-' << psfIndex[1] << '-' << psfIndex[2] << '-' << psfIndex[3] << '-' << psfIndex[4] << '-' << psfIndex[5];
 					filename << ".psf";
-					std::ofstream outfile{ filename.str() };
+					std::ofstream outfile{ p / filename.str() };
 
 					auto& psfStack = Psfs::getPsfStack(scene, object);
 					auto& psfEntryParameters = psfStack.m_psfEntryParameters(psfIndex);
@@ -1630,13 +1721,20 @@ namespace TiledSplatBlur
 					outfile << "Wavelength: " << psfEntryParameters.m_units.m_lambdaMuM << " (um)\n";
 					outfile << "Aperture Diameter: " << psfEntryParameters.m_units.m_apertureDiameterMM << " (mm)\n";
 					outfile << "Focus Distance: " << psfEntryParameters.m_units.m_focusDistanceM << " (meters)\n";
+					outfile << "Blur Radius: " << psfEntry.m_blurRadiusDeg << " (degs)\n";
 
+					// We want original, unscaled PSF to be written out. TODO: may also need to write out PSF spatial sampling parameters
+					// outfile << "Unscaled PSF size: " << psfEntry.m_psf.rows() << "\n";
+					// outfile << psfEntry.m_psf;
+					
+					
 					for (size_t radius = psfParameters.m_minBlurRadius; radius <= psfParameters.m_maxBlurRadius; ++radius) 
 					{
 						outfile << "Radius: " << radius << '\n';
 						Psfs::PsfGpu psf = Psfs::computeGpuPsf(scene, object, psfEntry, radius);
 						outfile << psf << '\n';
 					}
+					
 					outfile.close();
 
 					// Store the downscaled PSF in all the relevant radii
@@ -2013,6 +2111,9 @@ namespace TiledSplatBlur
 		const size_t tileBufferMaxCenterSubentries = Tiling::tileBufferMaxCenterFragmentsPerEntry(numLayers, tileSize);
 		const size_t tileBufferMaxSubentries = Tiling::tileBufferMaxFragmentsPerEntry(numLayers, tileSize, minMaxRadiusCurrent[1]);
 
+		std::cout << "Num Layers: " << numLayers << std::endl;
+		std::cout << "Tile Buffer Max Subentries: " << tileBufferMaxSubentries << std::endl;
+
 		// Maximum sort values
 		const size_t maxSharedIndices = Tiling::tileBufferMaxSortSharedElements(scene, object, tileBufferMaxSubentries);
 		const size_t maxSortElements = Tiling::tileBufferMaxSortElements(tileBufferMaxSubentries);
@@ -2378,6 +2479,8 @@ namespace TiledSplatBlur
 					// Place a memory barrier for the SSBOs
 					glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 				}
+
+				//std::cout << "DEBUG: " <<  maxSharedIndices << " " << maxSortElements << std::endl;
 
 				// Go through each group size
 				// TODO: something is wrong with sorting

@@ -317,7 +317,7 @@ void emitPsfTextureInterpolationCommand()
 void interpolatePsfTextureSample()
 {
     // Coordinates for the current sample
-	const ivec2 sampleCoords = ivec2(gl_GlobalInvocationID.xy);
+	  const ivec2 sampleCoords = ivec2(gl_GlobalInvocationID.xy);
     const uint layerId = gl_GlobalInvocationID.z;
 
     // Interpolation indices

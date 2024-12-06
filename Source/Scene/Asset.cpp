@@ -2098,6 +2098,10 @@ namespace Asset
 		// Assemble the full shader source
 		std::string fullShaderSource = getShaderSource(scene, shaderType, shaderName, fileName, shaderParameters);
 
+		if (fileName.find("diopter_based_on_axis") != std::string::npos) {
+				std::cout << "found" << std::endl;
+		}
+
 		// Make sure it exists.
 		if (fullShaderSource.empty())
 			return std::make_pair<GLuint, std::string>(0, "");

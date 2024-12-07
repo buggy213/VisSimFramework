@@ -10,7 +10,7 @@ namespace System
     {
         // Make sure we can actually go to sleep
         SYSTEM_POWER_CAPABILITIES sysPowCab = { 0 };
-        if (CallNtPowerInformation(SystemPowerCapabilities, NULL, 0, &sysPowCab, sizeof(SYSTEM_POWER_CAPABILITIES)) != STATUS_SUCCESS)
+        if (CallNtPowerInformation(SystemPowerCapabilities, NULL, 0, &sysPowCab, sizeof(SYSTEM_POWER_CAPABILITIES)) != 0) // dies of cringe
         {
             Debug::log_debug() << "Unable to retrieve system power management information." << Debug::end;
             return false;

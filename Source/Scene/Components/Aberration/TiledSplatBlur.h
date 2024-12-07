@@ -182,6 +182,35 @@ namespace TiledSplatBlur
 			float m_blurRadiusDeg;
 		};
 		std::vector<DerivedPsfParameters> m_derivedPsfParameters;
+
+		// TCP listener - single item work queue / result queue to communicate between threads
+		std::thread psfServer;
+
+		struct PsfServerWorkItem 
+		{
+			Aberration::ZernikeCoefficientsAlpha zernikes; // by default, 28 coefficients
+			float lambda; // nm
+			float aperture; // mm
+		};
+		
+		std::mutex workItemMutex;
+		PsfServerWorkItem workItem;
+		bool workItemValid;
+		
+		struct PsfServerResultItem
+		{
+			Aberration::PSFStackParameters::EvaluatedRanges evaluatedParameters;
+			Aberration::PsfStackElements::PsfEntryParameters psfEntryParameters;
+			Aberration::PsfStackElements::PsfEntries psfs;
+			std::vector<DerivedPsfParameters> derivedPsfParameters;
+		};
+
+		// avoid busy waiting on server thread
+		std::mutex resultItemMutex;
+		PsfServerResultItem resultItem;
+		bool resultItemReady;
+		std::condition_variable resultItemReadyCV;
+		
 	};
 
 	////////////////////////////////////////////////////////////////////////////////

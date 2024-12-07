@@ -164,6 +164,10 @@ namespace Aberration
 
 	////////////////////////////////////////////////////////////////////////////////
 	/** PSF stack evaluation parameters. */
+
+	
+	
+
 	struct PSFStackParameters
 	{
 		// Computation backend to use
@@ -180,7 +184,7 @@ namespace Aberration
 
 		// Which aberration coefficient to use
 		meta_enum(CoefficientVariation, int, AlphaOpd, AlphaPhaseCumulative, AlphaPhaseResidual, Beta);
-
+		
 		/** Represents a parameter range. */
 		struct ParameterRange
 		{
@@ -189,6 +193,7 @@ namespace Aberration
 			int m_numSteps;
 			float m_step;
 		};
+		
 
 		// Computation-related settings
 		ComputationBackend m_backend = GPU;
@@ -209,7 +214,8 @@ namespace Aberration
 		float m_desiredPupilRetinaDistance = 0.0f; // The desired manual pupil-retina distance
 
 		// Eye estimation parameters
-		EyeEstimationMethod m_eyeEstimationMethod = Matlab; /* NeuralNetworks ; */ // Which method to use for eye estimation
+		// EyeEstimationMethod m_eyeEstimationMethod = Matlab; /* NeuralNetworks ; */ // Which method to use for eye estimation
+		EyeEstimationMethod m_eyeEstimationMethod = NeuralNetworks;
 		bool m_forceOnAxisNetwork = false; // Whether we should always use the on-axis network or not
 
 		// Alpha to beta conversion parameters
@@ -255,6 +261,8 @@ namespace Aberration
 
 		// ---- Private members
 
+		
+
 		struct EvaluatedRanges
 		{
 			// The original ranges
@@ -273,7 +281,9 @@ namespace Aberration
 			std::vector<float> m_apertureDiameters;
 			std::vector<float> m_focusDioptres;
 			std::vector<float> m_focusDistances;
-		} m_evaluatedParameters;
+		};
+		
+		EvaluatedRanges m_evaluatedParameters;
 	};
 
 	////////////////////////////////////////////////////////////////////////////////

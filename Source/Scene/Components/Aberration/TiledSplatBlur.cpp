@@ -1,6 +1,7 @@
 #include "PCH.h"
 #include "TiledSplatBlur.h"
 
+
 namespace TiledSplatBlur
 {
 	////////////////////////////////////////////////////////////////////////////////
@@ -1829,6 +1830,160 @@ namespace TiledSplatBlur
 	}
 
 	////////////////////////////////////////////////////////////////////////////////
+	namespace PsfServer 
+	{
+		template <typename T>
+		void sendVector(boost::asio::ip::tcp::socket& sock, std::vector<T>& vec) {
+			boost::asio::write(sock, boost::asio::buffer(vec.data(), vec.size() * sizeof(T)));
+		}
+
+		template <typename T>
+		void addVectorSize(std::vector<T>& vec, size_t *sz) {
+			*sz += vec.size() * sizeof(T);
+		}
+
+		void addPsfSize(size_t n, size_t *sz) {
+			*sz += (
+				6 * sizeof(float) // index variables
+				+ sizeof(float) // blur radius
+				+ sizeof(uint32_t) // n
+				+ n * n * sizeof(float)
+			);
+		}
+
+		void serverThread(TiledSplatBlur::TiledSplatBlurComponent& component) {
+			boost::asio::io_context io_context;
+			boost::asio::ip::tcp::acceptor acceptor{ io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 8888) };
+			std::cout << "PSF server started on port 8888" << std::endl;
+			while (true) {
+				boost::asio::ip::tcp::socket socket{ io_context };
+				acceptor.accept(socket);
+				
+				std::vector<uint8_t> buffer;
+				buffer.resize(
+					28 * sizeof(float)
+					+ sizeof(float)
+					+ sizeof(float)
+				);
+
+				boost::asio::read(socket, boost::asio::buffer(buffer.data(), buffer.size()));
+				
+				{
+					std::lock_guard<std::mutex> _lock{ component.workItemMutex };
+					float* data = reinterpret_cast<float*>(buffer.data()); // surely it's fine
+					for (int i = 0; i < 28; i += 1) {
+						component.workItem.zernikes[i] = data[i];
+					}
+					component.workItem.lambda = data[28];
+					component.workItem.aperture = data[29];
+					component.workItemValid = true;
+				}
+
+				{
+					std::unique_lock<std::mutex> _lock{ component.resultItemMutex };
+					component.resultItemReadyCV.wait(_lock, [&]() { return component.resultItemReady; });
+
+					// send results over network
+					auto& evaluatedParameters = component.resultItem.evaluatedParameters;
+					uint64_t evaluatedParametersSize = 0;
+					
+					addVectorSize(evaluatedParameters.m_focusDioptres, &evaluatedParametersSize);
+					addVectorSize(evaluatedParameters.m_focusDistances, &evaluatedParametersSize);
+					addVectorSize(evaluatedParameters.m_objectDioptres, &evaluatedParametersSize);
+					addVectorSize(evaluatedParameters.m_objectDistances, &evaluatedParametersSize);
+					addVectorSize(evaluatedParameters.m_lambdas, &evaluatedParametersSize);
+					addVectorSize(evaluatedParameters.m_apertureDiameters, &evaluatedParametersSize);
+					addVectorSize(evaluatedParameters.m_incidentAnglesHorizontal, &evaluatedParametersSize);
+					addVectorSize(evaluatedParameters.m_incidentAnglesVertical, &evaluatedParametersSize);
+
+					boost::asio::write(socket, boost::asio::buffer(&evaluatedParametersSize, sizeof(uint64_t)));
+					sendVector(socket, evaluatedParameters.m_focusDioptres);
+					sendVector(socket, evaluatedParameters.m_focusDistances);
+					sendVector(socket, evaluatedParameters.m_objectDioptres);
+					sendVector(socket, evaluatedParameters.m_objectDistances);
+					sendVector(socket, evaluatedParameters.m_lambdas);
+					sendVector(socket, evaluatedParameters.m_apertureDiameters);
+					sendVector(socket, evaluatedParameters.m_incidentAnglesHorizontal);
+					sendVector(socket, evaluatedParameters.m_incidentAnglesVertical);
+
+					int idx = 0;
+					uint64_t totalSize = 0;
+					for (int i = 0; i < evaluatedParameters.m_objectDioptres.size(); i += 1)
+					for (int j = 0; j < evaluatedParameters.m_incidentAnglesHorizontal.size(); j += 1)
+					for (int k = 0; k < evaluatedParameters.m_incidentAnglesVertical.size(); k += 1)
+					for (int l = 0; l < evaluatedParameters.m_lambdas.size(); l += 1)
+					for (int m = 0; m < evaluatedParameters.m_apertureDiameters.size(); m += 1)
+					for (int n = 0; n < evaluatedParameters.m_focusDioptres.size(); n += 1)
+					{
+						auto psfIndex = Aberration::getPsfIndex(
+							component.resultItem.psfs.shape(),
+							component.resultItem.psfs.strides(),
+							idx
+						);
+
+						auto& derivedPsfParam = component.resultItem.derivedPsfParameters[idx++];
+						auto& psfEntryParam = component.resultItem.psfEntryParameters(psfIndex);
+						auto& psfEntry = component.resultItem.psfs(psfIndex);
+						
+						size_t matrixSize = psfEntry.m_psf.rows();
+						addPsfSize(matrixSize, &totalSize);
+					}
+
+					boost::asio::write(socket, boost::asio::buffer(&totalSize, sizeof(uint64_t)));
+					for (int i = 0; i < evaluatedParameters.m_objectDioptres.size(); i += 1)
+					for (int j = 0; j < evaluatedParameters.m_incidentAnglesHorizontal.size(); j += 1)
+					for (int k = 0; k < evaluatedParameters.m_incidentAnglesVertical.size(); k += 1)
+					for (int l = 0; l < evaluatedParameters.m_lambdas.size(); l += 1)
+					for (int m = 0; m < evaluatedParameters.m_apertureDiameters.size(); m += 1)
+					for (int n = 0; n < evaluatedParameters.m_focusDioptres.size(); n += 1)
+					{
+						auto psfIndex = Aberration::getPsfIndex(
+							component.resultItem.psfs.shape(),
+							component.resultItem.psfs.strides(),
+							idx
+						);
+
+						auto& derivedPsfParam = component.resultItem.derivedPsfParameters[idx++];
+						auto& psfEntryParam = component.resultItem.psfEntryParameters(psfIndex);
+						auto& psfEntry = component.resultItem.psfs(psfIndex);
+
+						
+						boost::asio::write(socket, boost::asio::buffer(&psfEntryParam.m_units.m_objectDistanceM, sizeof(float)));
+						boost::asio::write(socket, boost::asio::buffer(&psfEntryParam.m_units.m_horizontalAngle, sizeof(float)));
+						boost::asio::write(socket, boost::asio::buffer(&psfEntryParam.m_units.m_verticalAngle, sizeof(float)));
+						boost::asio::write(socket, boost::asio::buffer(&psfEntryParam.m_units.m_lambdaMuM, sizeof(float)));
+						boost::asio::write(socket, boost::asio::buffer(&psfEntryParam.m_units.m_apertureDiameterMM, sizeof(float)));
+						boost::asio::write(socket, boost::asio::buffer(&psfEntryParam.m_units.m_focusDistanceM, sizeof(float)));
+						boost::asio::write(socket, boost::asio::buffer(&derivedPsfParam.m_blurRadiusDeg, sizeof(float)));
+
+						uint32_t matrixSize = psfEntry.m_psf.rows();
+						boost::asio::write(socket, boost::asio::buffer(&matrixSize, sizeof(uint32_t)));
+						boost::asio::write(socket, boost::asio::buffer(psfEntry.m_psf.data(), matrixSize * matrixSize * sizeof(float)));
+					}
+				}
+			}
+		}
+
+		void notifyServer(Scene::Scene& scene, Scene::Object* object) {
+			TiledSplatBlur::TiledSplatBlurComponent& component = object->component<TiledSplatBlur::TiledSplatBlurComponent>();
+			
+			// copy relevant info into item, then wake up server
+			Aberration::WavefrontAberration& aberration = Psfs::getAberration(scene, object);
+			Aberration::PSFStack& psfStack = Psfs::getPsfStack(scene, object);
+
+			{
+				std::lock_guard<std::mutex> _lock{ component.resultItemMutex };
+				component.resultItem.derivedPsfParameters = component.m_derivedPsfParameters;
+				component.resultItem.psfEntryParameters = psfStack.m_psfEntryParameters;
+				component.resultItem.psfs = psfStack.m_psfs;
+				component.resultItem.evaluatedParameters = aberration.m_psfParameters.m_evaluatedParameters;
+				component.resultItemReady = true;
+			}
+
+			component.resultItemReadyCV.notify_one();
+		}
+	}
+
 	namespace Computations
 	{
 		////////////////////////////////////////////////////////////////////////////////
@@ -1898,6 +2053,15 @@ namespace TiledSplatBlur
 				[](Scene::Scene& scene, Scene::Object& object)
 				{
 					ResourceLoading::loadShaders(scene, &object);
+				});
+		}
+
+		void notifyPsfServer(Scene::Scene& scene, Scene::Object* object, int delayFrames = 1) 
+		{
+			DelayedJobs::postJob(scene, object, "Notify PSF Server", false, delayFrames,
+				[](Scene::Scene& scene, Scene::Object& object)
+				{
+					PsfServer::notifyServer(scene, &object);
 				});
 		}
 	}
@@ -2609,6 +2773,28 @@ namespace TiledSplatBlur
 		// End the tab bar
 		ImGui::EndTabBar();
 
+		// Not sure this is the most logical place to hook into VisSimFramework (GUI code?) but it is the most convenient
+		bool notifyServer = false;
+
+		{
+			auto& component = object->component<TiledSplatBlur::TiledSplatBlurComponent>();
+			std::mutex& mtx = component.workItemMutex;
+			std::lock_guard<std::mutex> _lock{ mtx };
+			if (component.workItemValid) 
+			{
+				Aberration::WavefrontAberration& aberration = Psfs::getAberration(scene, object);
+				aberration.m_aberrationParameters.m_type = Aberration::AberrationParameters::AberrationType::Preset;
+				aberration.m_aberrationParameters.m_lambda = component.workItem.lambda;
+				aberration.m_aberrationParameters.m_apertureDiameter = component.workItem.aperture;
+				aberration.m_aberrationParameters.m_coefficients = component.workItem.zernikes;
+
+				aberrationChanged = true;
+				notifyServer = true;
+				component.workItemValid = false;
+			}
+		}
+		
+
 		// Updates
 		if (aberrationChanged)
 		{
@@ -2637,6 +2823,11 @@ namespace TiledSplatBlur
 		if (aberrationChanged || psfSettingsChanged)
 		{
 			Computations::uploadPsfData(scene, object);
+		}
+
+		if (aberrationChanged && notifyServer)
+		{
+			Computations::notifyPsfServer(scene, object);
 		}
 	}
 
@@ -2871,6 +3062,13 @@ namespace TiledSplatBlur
 			object.component<TiledSplatBlur::TiledSplatBlurComponent>().m_aberration.m_psfPreview.m_resolutionId = renderSettings->component<RenderSettings::RenderSettingsComponent>().m_rendering.m_resolutionId;
 			object.component<TiledSplatBlur::TiledSplatBlurComponent>().m_aberration.m_psfPreview.m_resolution = RenderSettings::getResolutionById(scene, object.component<TiledSplatBlur::TiledSplatBlurComponent>().m_aberration.m_psfPreview.m_resolutionId);
 			object.component<TiledSplatBlur::TiledSplatBlurComponent>().m_aberration.m_psfPreview.m_fovy = camera->component<Camera::CameraComponent>().m_fovy;
+
+			// setup PSF server
+			object.component<TiledSplatBlur::TiledSplatBlurComponent>().psfServer = std::thread(
+				PsfServer::serverThread, std::ref(object.component<TiledSplatBlur::TiledSplatBlurComponent>())
+			);
+			object.component<TiledSplatBlur::TiledSplatBlurComponent>().workItemValid = false;
+			object.component<TiledSplatBlur::TiledSplatBlurComponent>().resultItemReady = false;
 		}));
 	}
 }

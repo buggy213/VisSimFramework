@@ -1577,6 +1577,122 @@ namespace TiledSplatBlur
 		}
 
 		////////////////////////////////////////////////////////////////////////////////
+		
+		// PSF file format
+		// n * 4 bytes (n = # of different PSFs)
+		// n entries of 
+		// - 7 floats (psf index + blur radius in degrees)
+		// - 1 uint (size of psf data, k)
+		// - k * k floats
+		void generatePsfFile(Scene::Scene& scene, Scene::Object* object, std::vector<UniformDataPsfParam>& psfParamBuffer, std::filesystem::path& p)
+		{
+				// DEBUG: write out PSFs to file
+				std::stringstream filename;
+				filename << "psf";
+				std::ofstream outfile{ p / filename.str(), std::ios::out | std::ios::binary };
+
+				auto& psfStack = Psfs::getPsfStack(scene, object);
+
+				const size_t numTotalPsfs = Psfs::numTotalPsfs(scene, object);
+
+				std::vector<int> psfFileOffsets;
+				psfFileOffsets.resize(numTotalPsfs);
+				// outfile.write(reinterpret_cast<const char*>(psfFileOffsets.data()), numTotalPsfs * sizeof(int));
+
+				for (int psfId = 0; psfId < numTotalPsfs; psfId += 1) {
+						Aberration::PsfIndex psfIndex = Psfs::getPsfIndex(scene, object, psfId);
+
+						auto& psfEntryParameters = psfStack.m_psfEntryParameters(psfIndex);
+						Aberration::PsfStackElements::PsfEntry& psfEntry = Psfs::selectEntry(scene, object, psfIndex);
+						UniformDataPsfParam& psfParameters = psfParamBuffer[psfId];
+
+						// outfile << "Object depth: " << psfEntryParameters.m_units.m_objectDistanceM << " (meters)\n";
+						// outfile << "Horizontal Angle: " << psfEntryParameters.m_units.m_horizontalAngle << "\n";
+						// outfile << "Vertical Angle: " << psfEntryParameters.m_units.m_verticalAngle << "\n";
+						// outfile << "Wavelength: " << psfEntryParameters.m_units.m_lambdaMuM << " (um)\n";
+						// outfile << "Aperture Diameter: " << psfEntryParameters.m_units.m_apertureDiameterMM << " (mm)\n";
+						// outfile << "Focus Distance: " << psfEntryParameters.m_units.m_focusDistanceM << " (meters)\n";
+						// outfile << "Blur Radius: " << psfEntry.m_blurRadiusDeg << " (degs)\n";
+
+						// We want original, unscaled PSF to be written out. TODO: may also need to write out PSF spatial sampling parameters
+						// outfile << "Unscaled PSF size: " << psfEntry.m_psf.rows() << "\n";
+						// outfile << psfEntry.m_psf;
+
+						int pos = outfile.tellp();
+						psfFileOffsets[psfId] = pos;
+
+						outfile.write(reinterpret_cast<char*>(&psfEntryParameters.m_units.m_objectDistanceM), sizeof(float));
+						outfile.write(reinterpret_cast<char*>(&psfEntryParameters.m_units.m_horizontalAngle), sizeof(float));
+						outfile.write(reinterpret_cast<char*>(&psfEntryParameters.m_units.m_verticalAngle), sizeof(float));
+						outfile.write(reinterpret_cast<char*>(&psfEntryParameters.m_units.m_lambdaMuM), sizeof(float));
+						outfile.write(reinterpret_cast<char*>(&psfEntryParameters.m_units.m_apertureDiameterMM), sizeof(float));
+						outfile.write(reinterpret_cast<char*>(&psfEntryParameters.m_units.m_focusDistanceM), sizeof(float));
+						outfile.write(reinterpret_cast<char*>(&psfParameters.m_blurRadiusDeg), sizeof(float));
+
+						int sz = psfEntry.m_psf.rows();
+						outfile.write(reinterpret_cast<char*>(&sz), sizeof(int));
+
+						// TODO: eigen internally stores in column-major, we can account for this in C# code
+						outfile.write(reinterpret_cast<char*>(psfEntry.m_psf.data()), sz * sz * sizeof(float));
+
+						if (psfId == 0 || psfId == 1) {
+								std::cout << psfEntryParameters.m_units.m_objectDistanceM << "\n";
+								std::cout << psfEntryParameters.m_units.m_horizontalAngle << "\n";
+								std::cout << psfEntryParameters.m_units.m_verticalAngle << "\n";
+								std::cout << psfEntryParameters.m_units.m_lambdaMuM << "\n";
+								std::cout << psfEntryParameters.m_units.m_apertureDiameterMM << "\n";
+								std::cout << psfEntryParameters.m_units.m_focusDistanceM << "\n";
+								std::cout << psfParameters.m_blurRadiusDeg << "\n";
+								std::cout << sz << "\n";
+						}
+				}
+
+				outfile.close();
+
+				std::stringstream offsetsFilename;
+				offsetsFilename << "psfoffsets";
+				std::ofstream offsets{ p / offsetsFilename.str(), std::ios::out | std::ios::binary };
+				offsets.write(reinterpret_cast<const char*>(psfFileOffsets.data()), numTotalPsfs * sizeof(int));
+				offsets.close();
+		}
+
+		void generatePsfFileText(Scene::Scene& scene, Scene::Object* object, std::vector<UniformDataPsfParam>& psfParamBuffer, std::filesystem::path& p) {
+				// DEBUG: write out PSFs to file
+				auto& psfStack = Psfs::getPsfStack(scene, object);
+
+				const size_t numTotalPsfs = Psfs::numTotalPsfs(scene, object);
+
+				for (int psfId = 0; psfId < numTotalPsfs; psfId += 1) {
+						Aberration::PsfIndex psfIndex = Psfs::getPsfIndex(scene, object, psfId);
+
+						std::stringstream filename;
+						filename << psfIndex[0] << '-' << psfIndex[1] << '-' << psfIndex[2] << '-' << psfIndex[3] << '-' << psfIndex[4] << '-' << psfIndex[5];
+						filename << ".psf";
+						std::ofstream outfile{ p / filename.str() };
+
+						auto& psfEntryParameters = psfStack.m_psfEntryParameters(psfIndex);
+						Aberration::PsfStackElements::PsfEntry& psfEntry = Psfs::selectEntry(scene, object, psfIndex);
+						UniformDataPsfParam& psfParameters = psfParamBuffer[psfId];
+
+						outfile << "Object depth: " << psfEntryParameters.m_units.m_objectDistanceM << " (meters)\n";
+						outfile << "Horizontal Angle: " << psfEntryParameters.m_units.m_horizontalAngle << "\n";
+						outfile << "Vertical Angle: " << psfEntryParameters.m_units.m_verticalAngle << "\n";
+						outfile << "Wavelength: " << psfEntryParameters.m_units.m_lambdaMuM << " (um)\n";
+						outfile << "Aperture Diameter: " << psfEntryParameters.m_units.m_apertureDiameterMM << " (mm)\n";
+						outfile << "Focus Distance: " << psfEntryParameters.m_units.m_focusDistanceM << " (meters)\n";
+						outfile << "Blur Radius: " << psfParameters.m_blurRadiusDeg << " (degs)\n";
+
+						// We want original, unscaled PSF to be written out. TODO: may also need to write out PSF spatial sampling parameters
+						outfile << "Unscaled PSF size: " << psfEntry.m_psf.rows() << "\n";
+						outfile << psfEntry.m_psf;
+
+						outfile.close();
+				}
+
+				
+		}
+
+
 		void uploadPsfData(Scene::Scene& scene, Scene::Object* object, const bool uploadParams, const bool uploadWeights,
 			Aberration::PsfIndex const& startIndex, Aberration::PsfIndex const& numIndices)
 		{
@@ -1688,6 +1804,8 @@ namespace TiledSplatBlur
 			psfStackFile << "\n";
 			psfStackFile.close();
 
+			generatePsfFile(scene, object, psfParamBuffer, p);
+
 			// Now actually upload the weights
 			std::vector<GLfloat> psfWeightBuffer(numTotalWeights);
 			{
@@ -1705,37 +1823,6 @@ namespace TiledSplatBlur
 
 					// Extract the PSF properties
 					UniformDataPsfParam const& psfParameters = psfParamBuffer[psfId];
-
-					// DEBUG: write out PSFs to file
-					std::stringstream filename;
-					filename << psfIndex[0] << '-' << psfIndex[1] << '-' << psfIndex[2] << '-' << psfIndex[3] << '-' << psfIndex[4] << '-' << psfIndex[5];
-					filename << ".psf";
-					std::ofstream outfile{ p / filename.str() };
-
-					auto& psfStack = Psfs::getPsfStack(scene, object);
-					auto& psfEntryParameters = psfStack.m_psfEntryParameters(psfIndex);
-					
-					outfile << "Object depth: " << psfEntryParameters.m_units.m_objectDistanceM << " (meters)\n";
-					outfile << "Horizontal Angle: " << psfEntryParameters.m_units.m_horizontalAngle << "\n";
-					outfile << "Vertical Angle: " << psfEntryParameters.m_units.m_verticalAngle << "\n";
-					outfile << "Wavelength: " << psfEntryParameters.m_units.m_lambdaMuM << " (um)\n";
-					outfile << "Aperture Diameter: " << psfEntryParameters.m_units.m_apertureDiameterMM << " (mm)\n";
-					outfile << "Focus Distance: " << psfEntryParameters.m_units.m_focusDistanceM << " (meters)\n";
-					outfile << "Blur Radius: " << psfEntry.m_blurRadiusDeg << " (degs)\n";
-
-					// We want original, unscaled PSF to be written out. TODO: may also need to write out PSF spatial sampling parameters
-					// outfile << "Unscaled PSF size: " << psfEntry.m_psf.rows() << "\n";
-					// outfile << psfEntry.m_psf;
-					
-					
-					for (size_t radius = psfParameters.m_minBlurRadius; radius <= psfParameters.m_maxBlurRadius; ++radius) 
-					{
-						outfile << "Radius: " << radius << '\n';
-						Psfs::PsfGpu psf = Psfs::computeGpuPsf(scene, object, psfEntry, radius);
-						outfile << psf << '\n';
-					}
-					
-					outfile.close();
 
 					// Store the downscaled PSF in all the relevant radii
 					GLfloat* writePtr = &psfWeightBuffer[psfParameters.m_weightStartId];
